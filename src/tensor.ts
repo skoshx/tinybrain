@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { matchingShape, prod } from './util';
+import { calculateStrides, matchingShape, prod } from './util';
 
 export class Tensor {
 	public grad: Tensor | null = null;
@@ -7,12 +7,27 @@ export class Tensor {
 	public requiresGrad: boolean = true;
 	public shape: number[];
 
-	constructor(data: number[], shape: number[], requiresGrad = true) {
+	public strides: number[] = [];
+	public offset: number = 0;
+
+	constructor(data: number[], shape: number[], offset = 0, requiresGrad = true) {
 		this.data = data;
 		this.shape = shape;
 		this.requiresGrad = requiresGrad;
+
+		// Calculate strides
+		this.strides = calculateStrides(shape);
+		this.offset = offset;
 	}
 
+	public transpose(...order: number[]) {
+		if (order.length === 0) order = [...Array(this.strides.length).keys()].reverse();
+		// TODO checks that transpose is "legal"
+		this.strides = order.map((orderVal) => this.strides[orderVal]);
+		return this;
+	}
+
+	// TODO write this with strides & offset
 	public toString() {
 		const lines = [];
 		// for (let i = 0; i < this.shape.length - 1; i++) {
@@ -75,6 +90,7 @@ export class Tensor {
 			`reshape() error: cannot reshape tensor with ${this.data.length} items to shape ${newShape}`
 		);
 		this.shape = newShape;
+		this.strides = calculateStrides(this.shape);
 		return this;
 	}
 
@@ -99,12 +115,54 @@ export class Tensor {
 		return this;
 	}
 
+	// A (k * m) + B (n * k) -> C (m * n)
 	public mul(y: Tensor) {
-		invariant(
+		// TODO this assertion is wrong, we should check that axis match
+		/* invariant(
 			matchingShape(y.shape, this.shape),
 			`mul() error: mismatching shapes ${y.shape} vs. ${this.shape}`
-		);
-		return this;
+		); */
+		// todo assert shapes
+		// invariant(this.shape[0] === this.shape[1], `mul() error: invalid shapes for matmul shapes (${y.shape}) and (${this.shape}) don't share a similar length axis.`);
+		// cnugteren.github.io/tutorial/pages/page2.html
+		const M = this.shape[0];
+		const K = this.shape[1];
+		const N = y.shape[1];
+
+		// const out = Tensor.zeros(N, M);
+		const out = Tensor.zeros(M, N);
+
+		console.log("THIs shape");
+		console.log(this.shape);
+		console.log(y.shape);
+
+		console.log("Outshape", N, M);
+
+		for (let m = 0; m < M; m++) {
+			for (let n = 0; n < N; n++) {
+				let acc = 0;
+				for (let k = 0; k < K; k++) {
+					acc += this.data[k * M + m] * y.data[n * K + k];
+				}
+
+				//this.data[n * M + m] = acc;
+				out.data[n * M + n] = acc;
+			}
+		}
+		/* for (let yi = 0; yi < y.shape[0]; yi++) {
+			for (let xi = 0; xi < y.shape[0]; xi++) {
+				let acc = 0;
+				for (let k = 0; k < y.shape[0]; k++) {
+					acc += this.data[k + y.shape[0] * yi] * y.data[xi + y.shape[0] * k];
+					// acc += A[yi][k] * B[k][xi];
+					// acc += 
+				}
+				this.data[xi + this.shape[0] * yi] = acc;
+				// C[yi][xi] = acc;
+			}
+		} */
+		return out;
+		// return this;
 	}
 
 	public add(y: Tensor) {

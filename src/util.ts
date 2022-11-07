@@ -9,3 +9,11 @@ export const matchingShape = (leftShape: number[], rightShape: number[]) => {
 	}
 	return true;
 };
+
+export const calculateStrides = (shape: number[]) => {
+	const strides = [1];
+	for (let i = 1; i < shape.length; i++) {
+		strides[i] = strides[i - 1] * shape[i];
+	}
+	return strides.reverse();
+};
