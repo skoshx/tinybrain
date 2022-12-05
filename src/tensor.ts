@@ -1,5 +1,5 @@
 import invariant from 'tiny-invariant';
-import { calculateStrides, matchingShape, prod } from './util';
+import { calculateStrides, dump, matchingShape, prod } from './util';
 
 export class Tensor {
 	public grad: Tensor | null = null;
@@ -10,13 +10,17 @@ export class Tensor {
 	public strides: number[] = [];
 	public offset: number = 0;
 
-	constructor(data: number[], shape: number[], offset = 0, requiresGrad = true) {
+	constructor(
+		data: number[],
+		shape: number[],
+		requiresGrad = true,
+		strides = calculateStrides(shape),
+		offset = 0
+	) {
 		this.data = data;
 		this.shape = shape;
 		this.requiresGrad = requiresGrad;
-
-		// Calculate strides
-		this.strides = calculateStrides(shape);
+		this.strides = strides;
 		this.offset = offset;
 	}
 
@@ -27,21 +31,52 @@ export class Tensor {
 		return this;
 	}
 
-	// TODO write this with strides & offset
-	public toString() {
-		const lines = [];
-		// for (let i = 0; i < this.shape.length - 1; i++) {
-		if (this.shape.length - 1 === 0) lines.push(this.data.join(', '));
-		for (let i = 0; i < this.shape.length - 1; i++) {
-			const ndim = this.shape[i]; // 2
-			if (ndim === 1) continue; // todo think this never happens
-			for (let j = 0; j < ndim; j++) {
-				const stepSize = this.shape[i + 1];
-				lines.push(`[${this.data.slice(j * stepSize, j * stepSize + stepSize).join(', ')}]`);
-			}
+	// TODO write slicing, not sure how we should go about this, since
+	// no similar slicing syntax as Python
+	public slice(...args: number[]) {
+		return this;
+	}
+
+	// ChatGPT generated solution :D
+	public sliceGPT(start: number[], end: number[]): Tensor {
+		// TODO: assert start.length === this.shape.length maybe ?
+		// Calculate the new shape and strides for the sliced tensor
+		const newShape = [];
+		const newStrides = [];
+		for (let i = 0; i < this.shape.length; i++) {
+			newShape[i] = end[i] - start[i];
+			newStrides[i] = this.strides[i];
 		}
 
-		return `<Tensor data=[${lines.join('\n'.padEnd(15))}] with grad=${this.grad}>`;
+		// Calculate the new offset for the sliced tensor
+		let newOffset = this.offset;
+		for (let i = 0; i < this.shape.length; i++) {
+			newOffset += start[i] * this.strides[i];
+		}
+
+		// Create and return the sliced tensor
+		return new Tensor(this.data, newShape, this.requiresGrad, newStrides, newOffset);
+	}
+
+	// TODO expand?
+	public expand(...newShape: number[]) {
+		// TODO assert only expansion of dimensions of size 1.
+		// TODO set stride of dimension of size 1 -> 0
+		return this;
+	}
+
+	// TODO coordinate is a bad name
+	public get(...coordinate: number[]) {
+		const index = coordinate
+			.map((coord, i) => coord * this.strides[i])
+			.reduce((prev, curr) => prev + curr, 0);
+		return this.data[this.offset + index];
+	}
+
+	// TODO write this with strides & offset
+	// TODO cap off decimals to 3-4 places
+	public toString() {
+		return `tensor(${dump(this)})`;
 	}
 
 	public static ones(...shape: number[]) {
@@ -64,24 +99,22 @@ export class Tensor {
 	}
 	// uniform distribution
 	public static uniform(...shape: number[]) {
-		const data = [];
-		for (let i = 0; i < prod(shape); i++) {
-			data.push(Math.random());
-		}
-		return new Tensor(data, shape);
+		return new Tensor(
+			Array.from({ length: prod(shape) }, () => Math.random()),
+			shape
+		);
 	}
 	// normal distribution
-	public static randn(shape: number[]) {
-		const normalDist = (x: number, mean = 0, variance = 1) => {
-			const firstPart = 1 / (Math.sqrt(variance) * Math.sqrt(2 * Math.PI));
-			const secondPart = Math.exp((-1 / 2) * ((x - mean) / Math.sqrt(variance)) ** 2);
-			return firstPart * secondPart;
+	public static randn(...shape: number[]) {
+		const randn = () => {
+			const u = 1 - Math.random();
+			const v = Math.random();
+			return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 		};
-		const data: number[] = [];
-		for (let i = 0; i < 3; i++) {
-			data.push(normalDist(Math.random() * 5));
-		}
-		return new Tensor(data, shape);
+		return new Tensor(
+			Array.from({ length: prod(shape) }, () => randn()),
+			shape
+		);
 	}
 
 	public reshape(...newShape: number[]) {
@@ -132,11 +165,11 @@ export class Tensor {
 		// const out = Tensor.zeros(N, M);
 		const out = Tensor.zeros(M, N);
 
-		console.log("THIs shape");
+		console.log('THIs shape');
 		console.log(this.shape);
 		console.log(y.shape);
 
-		console.log("Outshape", N, M);
+		console.log('Outshape', N, M);
 
 		for (let m = 0; m < M; m++) {
 			for (let n = 0; n < N; n++) {
@@ -149,18 +182,6 @@ export class Tensor {
 				out.data[n * M + n] = acc;
 			}
 		}
-		/* for (let yi = 0; yi < y.shape[0]; yi++) {
-			for (let xi = 0; xi < y.shape[0]; xi++) {
-				let acc = 0;
-				for (let k = 0; k < y.shape[0]; k++) {
-					acc += this.data[k + y.shape[0] * yi] * y.data[xi + y.shape[0] * k];
-					// acc += A[yi][k] * B[k][xi];
-					// acc += 
-				}
-				this.data[xi + this.shape[0] * yi] = acc;
-				// C[yi][xi] = acc;
-			}
-		} */
 		return out;
 		// return this;
 	}
